@@ -18,5 +18,5 @@ Project contributors are internal at this point in time. We ask that contributor
 2. Use underscores for spaces (don't use hyphens or spaces)
 
 ## Project contributors
-* Sabrina Grant, Ph.D. student, University of California Santa Cruz (please direct questions about this repository to jogsmith@ucsc.edu)
+* Sabrina Grant, Ph.D. student, University of California Santa Cruz (please direct questions about this repository to sanigran@ucsc.edu)
 * Joshua G. Smith, Assistant Professor, University of California Santa Cruz
