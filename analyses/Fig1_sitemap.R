@@ -26,13 +26,17 @@ bbox <- st_bbox(c(xmin = -122.08, ymin = 36.4, xmax = -121.7, ymax = 36.670574),
 
 ca_counties_mpen <- st_intersection(ca_counties, st_as_sfc(bbox))
 
-landmarks_a <- tibble(place = "Monterey \nPeninsula", long = -121.927984, lat = 36.585)
-landmarks_b <- tibble(place = "Monterey \nPeninsula", long = -121.93, lat = 36.603)
+water_labels <- data.frame(
+  x = c(-121.96, -121.955),
+  y = c(36.653, 36.497),
+  label = c("Monterey Bay", "Carmel Bay")
+)
 
-monterey_label <- data.frame(
-  x = c(-121.89, -122.03),
-  y = c(36.657, 36.54),
-  label = c("Monterey \nBay", "Carmel \nBay")
+#shared map extent
+view_coord <- coord_sf(xlim = c(-122.08, -121.82), ylim = c(36.465, 36.66), expand = FALSE)
+axis_breaks <- list(
+  scale_x_continuous(breaks = seq(-122.05, -121.85, by = 0.05)),
+  scale_y_continuous(breaks = seq(36.5, 36.65, by = 0.05))
 )
 
 my_theme <- theme(
@@ -75,6 +79,37 @@ g1_inset <- ggplotGrob(
     )
 )
 
+#labels are pushed into columns west/east of the site cluster, with leader lines
+label_sites <- function(df, label_col, size = 2, split = -121.94,
+                        x_left = -121.985, x_right = -121.865) {
+  left  <- df |> filter(longitude < split)
+  right <- df |> filter(longitude >= split)
+  common <- list(direction = "y", size = size, bg.color = "white", bg.r = 0.12,
+                 segment.color = "grey35", segment.size = 0.25,
+                 min.segment.length = 0, box.padding = 0.12,
+                 max.overlaps = Inf, max.iter = 20000, seed = 4817)
+  list(
+    do.call(geom_text_repel, c(list(data = left,
+      mapping = aes(longitude, latitude, label = .data[[label_col]]),
+      hjust = 1, nudge_x = x_left - left$longitude), common)),
+    do.call(geom_text_repel, c(list(data = right,
+      mapping = aes(longitude, latitude, label = .data[[label_col]]),
+      hjust = 0, nudge_x = x_right - right$longitude), common))
+  )
+}
+
+base_map <- function() {
+  list(
+    geom_sf(data = ca_counties_mpen, fill = "grey88", color = "grey50", linewidth = 0.2),
+    geom_text(data = water_labels, aes(x, y, label = label),
+              size = 2.6, fontface = "italic", color = "grey25", inherit.aes = FALSE),
+    theme_bw(), my_theme, theme(plot.margin = margin(4, 4, 4, 4)),
+    labs(x = "Longitude", y = "Latitude"),
+    annotation_scale(location = "br", width_hint = 0.2, style = "ticks",
+                     text_cex = 0.6, bar_cols = "black", line_width = 0.5)
+  )
+}
+
 ################################################################################
 #Panel A: MPLA MAP
 #real site coordinates pulled from kelp_swath_counts_CC.csv
@@ -114,35 +149,17 @@ site_locations_sf_a <- site_locations_labels_a %>%
 
 #mpla sites map
 map_a <- ggplot() +
-  geom_sf(data = ca_counties_mpen) +
-  geom_sf(data = site_locations_sf_a) +
-  ggrepel::geom_label_repel(
-    data = site_locations_labels_a,
-    aes(x = longitude, y = latitude, label = site),
-    box.padding = 0.3, point.padding = 0.5, force = 18,
-    size = 2, min.segment.length = 0.1, segment.color = "grey50",
-    max.overlaps = Inf  #fix: without this, ggrepel was silently dropping
-    #Lovers/Hopkins/Macabee DC labels in the dense cluster
-  ) +
-  geom_text(data = landmarks_a, mapping = aes(x = long, y = lat, label = place),
-            size = 4, fontface = "bold") +
-  coord_sf(xlim = c(-122.08, -121.85), ylim = c(36.5, 36.66)) +
-  theme_bw() + my_theme +
-  xlab("Longitude") + ylab("Latitude") +
-  annotation_custom(grob = g1_inset, xmin = -122.08, xmax = -121.997, ymin = 36.615, ymax = 36.665) +
-  annotation_scale(location = "br", width_hint = 0.25, style = "ticks") +
+  base_map() +
+  geom_sf(data = site_locations_sf_a, size = 1.2) +
+  label_sites(site_locations_labels_a, "site", size = 2) +
+  annotation_custom(grob = g1_inset, xmin = -122.077, xmax = -122.01, ymin = 36.595, ymax = 36.657) +
   annotation_north_arrow(
     location = "tl", which_north = "true",
-    pad_x = unit(.5, "cm"), pad_y = unit(0.5, "cm"),  #fix: pad_x was 0.5cm, not
-    #enough to clear the inset --
-    #needs ~8.5cm at this panel width
-    style = north_arrow_fancy_orienteering(),
-    height = unit(2, "cm"), width = unit(2, "cm")
+    pad_x = unit(1.8, "cm"), pad_y = unit(0.6, "cm"),  #sits just right of the CA inset
+    style = north_arrow_fancy_orienteering(text_size = 6),
+    height = unit(1.3, "cm"), width = unit(1.3, "cm")
   ) +
-  geom_text(data = monterey_label, mapping = aes(x = x, y = y, label = label),
-            size = 4, fontface = "bold") +
-  annotate("segment", x = -122, y = 36.54, xend = -121.96, yend = 36.54,
-           arrow = arrow(type = "closed", length = unit(0.02, "npc")))
+  axis_breaks + view_coord  #coord last so nothing overrides the extent
 
 ################################################################################
 #Panel B: MBA Map
@@ -179,57 +196,39 @@ site_locations_sf_b <- site_locations_labels_b %>%
   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
 
 map_b <- ggplot() +
-  geom_sf(data = ca_counties_mpen) +
-  geom_sf(data = site_locations_sf_b, aes(shape = zone, color = zone), size = 2) +
+  base_map() +
+  geom_sf(data = site_locations_sf_b, aes(shape = zone, color = zone), size = 1.8, stroke = 0.6) +
   scale_shape_manual(values = c("Deep" = 1, "Shallow" = 17)) +
-  scale_color_manual(values = c("Deep" = "black", "Shallow" = "grey40")) +
-  ggrepel::geom_label_repel(
-    data = site_locations_labels_b,
-    aes(x = longitude, y = latitude, label = site_zone),
-    box.padding = 0.3, point.padding = 0.5, force = 40,  #fix: bumped from 25 --
-    #Rec 11-14 cluster near
-    #Carmel Bay still crowded,
-    #may need a zoomed inset
-    #if this isn't enough
-    size = 1.8, min.segment.length = 0.1, segment.color = "grey50",
-    max.overlaps = Inf, max.iter = 20000
-  ) +
-  geom_text(data = landmarks_b, mapping = aes(x = long, y = lat, label = place),
-            size = 4, fontface = "bold") +
-  coord_sf(xlim = c(-122.08, -121.85), ylim = c(36.5, 36.66)) +
-  theme_bw() + my_theme +
-  xlab("Longitude") + ylab("Latitude") +
-  labs(shape = "Zone", color = "Zone") +  #fix: labs(label = "Zone") did nothing --
-  #"label" isn't a guide-producing aesthetic
-  #here, so the legend title stayed "zone"
-  theme(legend.position = c(0.1, 0.9)) + 
+  scale_color_manual(values = c("Deep" = "black", "Shallow" = "grey25")) +
+  label_sites(site_locations_labels_b, "site_zone", size = 1.9) +
+  labs(shape = NULL, color = NULL) +  #zone is self-explanatory from the legend keys
   theme(
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text  = element_text(size = 9, face = "bold")
+    legend.position = "inside", legend.position.inside = c(0.02, 0.02),
+    legend.justification = c(0, 0), legend.direction = "horizontal", legend.key.size = unit(0.3, "cm"), legend.margin = margin(1, 3, 1, 3),
+    legend.spacing.x = unit(0.05, "cm"),
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.text = element_text(size = 6),
+    legend.background = element_rect(fill = alpha("white", 0.85), color = "grey60", linewidth = 0.2)
   ) +
-  annotation_scale(location = "br", width_hint = 0.25, style = "ticks") +
-  geom_text(data = monterey_label, mapping = aes(x = x, y = y, label = label),
-            size = 4, fontface = "bold") +
-  annotate("segment", x = -122, y = 36.54, xend = -121.96, yend = 36.54,
-           arrow = arrow(type = "closed", length = unit(0.02, "npc")))
+  axis_breaks + view_coord
 
 ################################################################################
 #Combine panels
-################################################################################
-
-combined <- map_a + map_b
-
 
 combined <- plot_grid(
   map_a, map_b,
   labels = c("A", "B"),
-  label_size = 15,
+  label_size = 11,
   label_fontface = "bold",
   ncol = 2,
-  align = "h"
-)
+  align = "h")
 
 combined
 
-ggsave(file.path(figures_out, "Fig1_map_figure.png"), combined, bg = "white",
-       width = 10, height = 8, units = "in", dpi = 600)
+################################################################################
+#Saving figure to the "figure" folder in my repo
+
+ggsave(file.path(figures_out, "Fig1_sitemap.png"), combined, bg = "white",
+       width = 10, height = 5.4, units = "in", dpi = 600)
+
+#last write Jul 9, 2026

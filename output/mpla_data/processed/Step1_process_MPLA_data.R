@@ -9,12 +9,13 @@ librarian::shelf(tidyverse, here)
 ###subtidal monitoring data were accessed at
 ###https://opc.dataone.org/view/doi:10.25494/P6/MLPA_kelpforest.12
 
-##require:
+librarian::shelf(data.table, dplyr, ggplot2, tidyr, here)
 
 #MLPA_kelpforest_swath.10.csv
 #MLPA_kelpforest_upc.10.csv
 #MLPA_kelpforest_site_table.10.csv
 #MLPA_kelpforest_taxon_table.10.csv
+
 
 ################################################################################
 #set directories and load data
@@ -50,7 +51,7 @@ kelp_swath_build1 <- kelp_swath_raw %>%
   dplyr::select(year, site, zone, transect, classcode, count, size)%>%
   group_by(year, site, zone, transect, classcode)%>%
   dplyr::summarize(total_count = sum(count), #counts in raw data are grouped by size class. Take summary across all sizes
-                   total_stipes = sum(size, na.rm = TRUE)) %>% #this is for stipe counts only
+                   total_stipes = sum(size * count, na.rm = TRUE)) %>% #stipe counts only: size = stipes per plant, so weight by plants counted
   #CHANGED: now creates two columns — total_count (individuals for all species) and
   #total_count_stipes (stipes for Macrocystis, individuals for all other species)
   mutate(total_count_stipes = ifelse(classcode == "MACPYRAD", total_stipes, total_count)) %>%
@@ -101,7 +102,9 @@ kelp_swath_build6 <- kelp_swath_build5 %>%
   #join macrocystis stipes as single new column
   left_join(macro_stipes, by = c("year", "baseline_region", "latitude", "longitude",
                                  "site", "affiliated_mpa", "mpa_class", 
-                                 "mpa_designation", "zone", "transect"))
+                                 "mpa_designation", "zone", "transect")) %>%
+  #transects with no Macrocystis have no row in macro_stipes; true count is 0, not NA
+  mutate(macrocystis_stipes = replace_na(macrocystis_stipes, 0))
 
 unique(kelp_swath_build6$site)
 
@@ -197,10 +200,13 @@ kelp_upc_build6 <- kelp_upc_build5 %>%
   group_by(year, site, zone, transect, classcode, species)%>%
   dplyr::summarize(sum_count = sum(count)) 
 
-#check to make sure UPC counts add up to ~30 per transect               
-check_counts <- kelp_upc_build5 %>%
+#total points per transect, taken BEFORE dropping non-biotic/excluded categories
+#(bare rock, sand, etc.) so cover is relative to all points. Uses build1 (no taxon join)
+#to avoid double counting classcodes that map to multiple taxa (e.g., UNID).
+#Most transects should total ~30 points.
+check_counts <- kelp_upc_build1 %>%
   group_by(year, site, zone, transect)%>%
-  dplyr::summarize(transect_total = sum(count))
+  dplyr::summarize(transect_total = sum(count), .groups = "drop")
 
 #join percent cov with transect total
 kelp_upc_build7 <- left_join(kelp_upc_build6, check_counts, by=c("year","site","zone","transect"))%>%
@@ -233,7 +239,10 @@ kelp_upc_build10 <- kelp_upc_build9 %>%
   filter(baseline_region == "CENTRAL") %>%
   #filter years >= 2007
   filter(year >= 2007) %>%
-  mutate_at(c(11:67), ~replace_na(.,0)) %>%
+  #absent taxa are 0 cover; fill by name rather than column position
+  mutate(across(-c(year, baseline_region, site, latitude, longitude, affiliated_mpa,
+                   mpa_class, mpa_designation, zone, transect, MHW),
+                ~replace_na(.x, 0))) %>%
   dplyr::select(year, MHW, everything())
 #filter(region3 == 'central') %>%
 #select(where(~ any(. != 0)))

@@ -267,7 +267,7 @@ kelp_swath_region_stipes_site <- kelp_swath_clean6 %>%
   summarise(mean_density = mean(mean_density), .groups = "drop")
 
 ################################################################################
-#Fig. 3: Mean density of kelp species in Central Calif ornia fitted with a Generalized Additive Model over time (2007-2022). A: Macrocystis pyrifera as # of individuals/m-2, B: Macrocystis pyrifera as # of stipes/m-2
+#Fig. 3: Mean density of kelp species in Central California fitted with a Generalized Additive Model over time (2007-2022). A: Macrocystis pyrifera as # of individuals/m-2, B: Macrocystis pyrifera as # of stipes/m-2
 
 a3 <- ggplot(data = kelp_swath_overall_ind_site, 
              aes(x = year, y = mean_density, color = kelp_type, fill = kelp_type)) +
