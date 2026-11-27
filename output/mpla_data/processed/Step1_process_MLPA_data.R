@@ -1,4 +1,4 @@
-#MPLA Community data processing
+#MLPA Community data processing
 #Sabrina N. Grant (adapted from Joshua G. Smith's script)
 #April 10, 2026
 
@@ -248,9 +248,166 @@ kelp_upc_build10 <- kelp_upc_build9 %>%
 #select(where(~ any(. != 0)))
 #mutate_all(~ifelse(is.nan(.), NA, .))
 
-################################################################################
-#drop sites that do not have consistent sampling
 
+################################################################################
+#select for carmel bay and big sur sites
+
+nereocystis_sites <- kelp_swath_build8 %>%
+  group_by(site, latitude, longitude) %>%
+  summarise(
+    n_years = n_distinct(year),
+    years_with_nereocystis = n_distinct(
+      year[nereocystis_luetkeana > 0]
+    ),
+    max_nereocystis = max(nereocystis_luetkeana, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(years_with_nereocystis > 0) %>%
+  arrange(desc(latitude))
+
+print(nereocystis_sites, n = Inf)
+
+library(sf)
+land <- rnaturalearth::ne_countries(scale = "large", country = "United States of America",
+                                    returnclass = "sf")
+
+nereocystis_sites |>
+  # Draw sites with the most years on top
+  arrange(years_with_nereocystis) |>
+  ggplot() +
+  geom_sf(data = land, fill = "grey90", color = "grey50", linewidth = 0.3) +
+  geom_point(aes(longitude, latitude, color = years_with_nereocystis),
+             size = 3, alpha = 0.85) +
+  # Label only the top sites, placed offshore to avoid the dense cluster
+  ggrepel::geom_text_repel(
+    data = ~ slice_max(.x, years_with_nereocystis, n = 5, with_ties = FALSE),
+    aes(longitude, latitude, label = site), size = 3, min.segment.length = 0,
+    xlim = c(NA, -122.3), direction = "y", hjust = 1, segment.color = "grey40") +
+  scale_color_viridis_c(direction = -1, end = 0.9) +
+  coord_sf(xlim = c(-123.6, -120.4), ylim = c(34.6, 37.1), expand = FALSE) +
+  theme_classic() +
+  theme(panel.grid = element_line(color = "grey92")) +
+  labs(x = NULL, y = NULL, color = "Years with\nbull kelp",
+       title = "Sites with historical Nereocystis presence")
+
+################################################################################
+#select for Carmel Bay and Big Sur MPA sites
+# Define geographic extent
+################################################################################
+# Select Carmel Bay and Big Sur sites
+
+target_mpas <- c(
+  "Carmel Bay SMCA",
+  "Carmel Pinnacles SMR",
+  "Point Lobos SMR",
+  "Point Sur SMR",
+  "Big Creek SMR"
+)
+
+# Filter SWATH data
+kelp_swath_CB_BS <- kelp_swath_build8 %>%
+  filter(affiliated_mpa %in% target_mpas)
+
+# Filter UPC data
+kelp_upc_CB_BS <- kelp_upc_build10 %>%
+  filter(affiliated_mpa %in% target_mpas)
+
+################################################################################
+# Evaluate selected sites
+
+site_summary <- kelp_swath_CB_BS %>%
+  group_by(affiliated_mpa, site, latitude, longitude) %>%
+  summarise(
+    first_year = min(year),
+    last_year = max(year),
+    n_years = n_distinct(year),
+    n_transects = n(),
+    n_years_bull_kelp = n_distinct(
+      year[nereocystis_luetkeana > 0]
+    ),
+    mean_bull_kelp = mean(nereocystis_luetkeana),
+    mean_giant_kelp = mean(macrocystis_pyrifera),
+    mean_giant_kelp_stipes = mean(macrocystis_stipes),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pct_years_bull_kelp = 100 * n_years_bull_kelp / n_years
+  ) %>%
+  arrange(desc(latitude))
+
+ggplot(site_summary, aes(x = longitude, y = latitude)) +
+  geom_point(
+    aes(color = pct_years_bull_kelp, size = n_years)
+  ) +
+  geom_text_repel(aes(label = site), size = 3) +
+  scale_color_gradient(
+    low = "grey80",
+    high = "#6E8B3D",
+    limits = c(0, 100)
+  ) +
+  coord_quickmap() +
+  theme_classic() +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    color = "Years with\nbull kelp (%)",
+    size = "Years sampled",
+    title = "Carmel Bay and Big Sur monitoring sites"
+  )
+site_order <- site_summary %>%
+  arrange(latitude) %>%
+  pull(site) %>%
+  unique()
+
+sampling_summary <- kelp_swath_CB_BS %>%
+  group_by(site, affiliated_mpa, year) %>%
+  summarise(
+    n_transects = n(),
+    bull_kelp_present = any(nereocystis_luetkeana > 0),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    site = factor(site, levels = site_order)
+  )
+
+ggplot(sampling_summary, aes(x = year, y = site)) +
+  geom_tile(
+    aes(fill = bull_kelp_present),
+    color = "white",
+    linewidth = 0.3
+  ) +
+  scale_fill_manual(
+    values = c("FALSE" = "grey80", "TRUE" = "#6E8B3D"),
+    labels = c("Absent", "Present")
+  ) +
+  scale_x_continuous(
+    breaks = seq(2001, max(sampling_summary$year), 1)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(
+    x = "Survey year",
+    y = NULL,
+    fill = "Bull kelp",
+    title = "Temporal sampling coverage",
+    subtitle = "Sites ordered north to south; blank cells indicate unsampled years")
+################################################################################
+# Export
+
+write.csv(
+  kelp_swath_CB_BS,
+  file.path(output, "kelp_swath_counts_CB_BS.csv"),
+  row.names = FALSE)
+
+write.csv(
+  kelp_upc_CB_BS,
+  file.path(output, "kelp_upc_cov_CB_BS.csv"),
+  row.names = FALSE)
+
+################################################################################
+#for carmel bay and monterey bay sites
 kelp_swath_build9 <- kelp_swath_build8 %>%
   #select sites in Carmel and Monterey Bay only
   dplyr::filter(latitude >= 36.46575 & latitude <= 36.64045) %>%

@@ -36,6 +36,9 @@ table(quad_data$site_type, useNA = "ifany")
 ################################################################################
 #process quad data (quadrat-level)
 
+################################################################################
+#process quad data (quadrat-level)
+
 quad_build1 <- quad_data %>%
   janitor::clean_names() %>%
   mutate(survey_date = as.Date(survey_date),
@@ -46,9 +49,27 @@ quad_build1 <- quad_data %>%
   fill(survey_type, region, latitude, longitude, .direction = "downup") %>%
   ungroup() %>%
   filter(survey_type == "Recovery", year %in% c(2024, 2025)) %>%
-  mutate(site_type = factor(site_type, levels = c("BAR", "INCIP", "FOR"))) %>%
-  dplyr::select(year, survey_date, region, site, site_type, zone, transect,
-                quadrat, everything(), -survey_type)
+  mutate(
+    site_type = factor(site_type, levels = c("BAR", "INCIP", "FOR")),
+    
+    #Categorize relief to match MLPA UPC survey categories
+    relief_category = case_when(
+      is.na(relief_cm) ~ NA_character_,
+      relief_cm < 0   ~ NA_character_,
+      relief_cm < 10  ~ "FLATREL",
+      relief_cm < 100 ~ "SLTREL",
+      relief_cm < 200 ~ "MODREL",
+      TRUE            ~ "HIREL"
+    ),
+    
+    relief_category = factor(
+      relief_category,
+      levels = c("FLATREL", "SLTREL", "MODREL", "HIREL"),
+      ordered = TRUE
+    )
+  ) %>%
+  dplyr::select(year, survey_date, region, site, site_type, zone,
+                transect, quadrat, everything(), -survey_type)
 
 ################################################################################
 #process kelp data (transect-level)
@@ -93,6 +114,51 @@ quad_build1 %>% distinct(year, site, zone, site_type) %>%
               distinct(year, site, zone, site_type = factor(site_type, levels = levels(quad_build1$site_type))),
             by = c("year", "site", "zone", "site_type"))
 
+#check relief categorization
+
+quad_build1 %>%
+  count(relief_category, .drop = FALSE) %>%
+  mutate(proportion = n / sum(n))
+
+#Check continuous relief within each category
+quad_build1 %>%
+  filter(!is.na(relief_category)) %>%
+  group_by(relief_category) %>%
+  summarise(
+    n = n(),
+    min_relief = min(relief_cm),
+    mean_relief = mean(relief_cm),
+    max_relief = max(relief_cm),
+    .groups = "drop"
+  )
+
+quad_build1 %>%
+  filter(!is.na(relief_category)) %>%
+  ggplot(aes(x = site_type, fill = relief_category)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~year) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_fill_manual(
+    values = c(
+      "FLATREL" = "#E5E5E5",
+      "SLTREL" = "#B5C99A",
+      "MODREL" = "#6E8B3D",
+      "HIREL" = "#38532B"
+    ),
+    labels = c(
+      "Flat",
+      "Slight",
+      "Moderate",
+      "High"
+    )
+  ) +
+  theme_classic() +
+  labs(
+    x = "Patch type",
+    y = "Proportion of quadrats",
+    fill = "Vertical relief",
+    title = "Habitat complexity across patch types"
+  )
 ################################################################################
 #export
 
